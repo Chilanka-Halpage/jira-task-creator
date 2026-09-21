@@ -1,11 +1,18 @@
-# Excel → Jira Task Importer
+# Jira Task Creator
 
-A small local web app that turns a sprint-backlog Excel sheet into Jira tasks.
+A small web app that turns a sprint-backlog Excel sheet into Jira tasks.
 Because the sheet's `Project` / `Component` / `Assignee` values are free text
 that doesn't match Jira's real project keys, components or users, the app has
 a one-time **metadata mapping** step: you tell it once "Excel value X = Jira
-project/component/user Y", it's saved locally, and every future import reuses
+project/component/user Y", it's remembered, and every future import reuses
 it (only brand-new values need mapping).
+
+Runs two ways:
+- **Locally**, for yourself — `run.bat`/`run.sh` remember your Jira
+  connection and mapping across restarts (saved to `./data` on your own machine).
+- **Deployed for a team to share** — see [Deploying for others to use](#deploying-for-others-to-use-free)
+  below. Each visitor's Jira credentials and mapping stay private to their own
+  browser session; nothing is written to shared server disk.
 
 ## Requirements
 
@@ -67,10 +74,13 @@ streamlit run app.py
        a mandatory "Payment Category" dropdown). Without this, task creation
        fails outright with an error like `"Payment Category is required"`.
      Already-mapped fields are excluded from the picker as you add more.
-   - Mappings are saved to `data/mapping.json` and persist across restarts —
-     re-uploading a new sprint sheet later will only ask you to map values it
-     hasn't seen before. Use **Export mapping config** / **Import mapping
-     config** at the top of this tab to back up or share your mapping.
+   - Mappings persist for as long as your session lasts (across a local run,
+     that's until you close `run.bat`; on a shared deployment, that's until
+     you close the browser tab) — re-uploading a new sprint sheet later will
+     only ask you to map values it hasn't seen before, within that same
+     session. Use **Export mapping config** / **Import mapping config** at
+     the top of this tab to save your mapping to a file and reload it later
+     or on another device — this works the same way in both modes.
 4. **Review & Create** — check the resolved table (skips rows that already
    have a JIRA ID or a status like *Done*/*Discarded* by default). Untick
    **Create?** on any row in the table to skip it individually, even if it's
@@ -96,19 +106,52 @@ with dark mode on — a Streamlit rendering limitation, not a bug.
 
 ## Stopping the app
 
-Click **🛑 Stop App** at the bottom of the sidebar and confirm — this shuts
-down the local server immediately (equivalent to closing the terminal window
-running `run.bat`). It also tries to close the browser tab for you, but
-browsers only allow a page to close itself if a script opened it in the first
-place — for a normally-opened tab this will usually be silently blocked, so
-you may still need to close the tab by hand. Run `run.bat` again to restart.
+Only available when running locally via `run.bat`/`run.sh` (hidden on a
+shared deployment, since it would take the app down for every other visitor
+at once). Click **🛑 Stop App** at the bottom of the sidebar and confirm —
+this shuts down the local server immediately (equivalent to closing the
+terminal window running `run.bat`). It also tries to close the browser tab
+for you, but browsers only allow a page to close itself if a script opened it
+in the first place — for a normally-opened tab this will usually be silently
+blocked, so you may still need to close the tab by hand. Run `run.bat` again
+to restart.
+
+## Deploying for others to use (free)
+
+**GitHub Pages won't work for this** — it only serves static files, and this
+app needs a Python backend (to parse Excel, call Jira's API, etc.) plus Jira
+Cloud blocks direct browser-to-API calls from other domains (CORS), so a
+static page could never reach Jira anyway.
+
+**[Streamlit Community Cloud](https://share.streamlit.io)** is the free,
+purpose-built host for apps like this one:
+
+1. Push this repo to GitHub (public or private both work):
+   ```bash
+   git remote add origin https://github.com/<you>/<repo-name>.git
+   git push -u origin master
+   ```
+2. Go to [share.streamlit.io](https://share.streamlit.io), sign in with
+   GitHub, click **New app**, pick this repo/branch, and set the main file
+   path to `app.py`. Deploy.
+3. **Do not** set `JIRA_APP_PERSIST_LOCAL` or `JIRA_APP_ALLOW_STOP` as
+   secrets/environment variables on the deployed app — leaving them unset is
+   what keeps every visitor's Jira credentials private to their own session
+   (see below) and keeps the Stop button hidden.
+
+Each visitor connects with their own Jira URL/email/API token, right there in
+the app — nothing needs to be pre-configured before sharing the link.
 
 ## Notes
 
-- Your Jira URL/email/API token are stored in plain text in `data/connection.json`
-  so you don't have to re-enter them every time — keep that folder private and
-  don't commit it to source control (already covered by `.gitignore`). The
-  Connect tab never re-displays a saved token in the field (it stays blank
+- **Local runs** (`run.bat`/`run.sh`) store your Jira URL/email/API token in
+  plain text in `data/connection.json` so you don't have to re-enter them
+  every time — keep that folder private and don't commit it to source control
+  (already covered by `.gitignore`). **Shared deployments** (Streamlit
+  Community Cloud) never write this to disk at all — it lives only in that
+  visitor's browser session and is gone when they close the tab, so different
+  visitors never see or overwrite each other's credentials. The Connect tab
+  never re-displays a saved token in the field either way (it stays blank
   with a "saved" placeholder) so the real secret isn't sitting in the page
   each time you open the tab — leave it blank to keep the saved token, or
   type a new one to replace it.
