@@ -1,0 +1,9 @@
+[theme]
+primaryColor = "#0052CC"
+font = "sans serif"
+
+[browser]
+gatherUsageStats = false
+
+[client]
+toolbarMode = "minimal"
