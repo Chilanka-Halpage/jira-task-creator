@@ -142,6 +142,13 @@ purpose-built host for apps like this one:
 Each visitor connects with their own Jira URL/email/API token, right there in
 the app — nothing needs to be pre-configured before sharing the link.
 
+On a shared deployment, the sidebar also shows a **🔒 Forget my Jira
+credentials** button — click it to immediately wipe your token from that
+session's memory the moment you're done, rather than waiting for Streamlit's
+own idle timeout to clear it. Your uploaded sheet and mapping are kept; only
+the Jira connection (and anything fetched using it — projects, components,
+etc.) is cleared, and you'll need to reconnect to keep using the app.
+
 ## Notes
 
 - **Local runs** (`run.bat`/`run.sh`) store your Jira URL/email/API token in

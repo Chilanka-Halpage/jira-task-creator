@@ -579,6 +579,26 @@ with st.sidebar:
             "Your Jira connection and mapping are kept only for this browser session — nobody else who opens "
             "this app can see them, and they're forgotten once you close this tab."
         )
+        if ss.client or ss.connection.get("api_token"):
+            if st.button("\U0001F512 Forget my Jira credentials", use_container_width=True):
+                ss.connection = {"base_url": storage.DEFAULT_JIRA_URL, "email": "", "api_token": ""}
+                ss.client = None
+                ss.me = None
+                # everything below was fetched using that token — drop it too
+                # rather than leave stale Jira data attached to a cleared login
+                ss.projects = []
+                ss.components_cache = {}
+                ss.issue_types_cache = {}
+                ss.users_cache = {}
+                ss.link_types = None
+                ss.all_labels = None
+                ss.create_fields_cache = {}
+                st.success("Credentials forgotten for this session. Reconnect in the Connect tab to keep going.")
+                st.rerun()
+            st.caption(
+                "Don't want to wait for this tab to time out on its own? Click above to wipe your token from "
+                "this session's memory right now — your uploaded sheet and mapping are kept."
+            )
 
     # The Stop button kills the whole server process — fine for a local,
     # single-user run (run.bat sets this env var), but on a shared host it
