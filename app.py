@@ -655,7 +655,9 @@ def render_sidebar_status():
     )
 
 
-PAGES = ["1  Connect to Jira", "2  Upload Sheet", "3  Configure Mapping", "4  Review & Create"]
+PAGES = [
+    "1  Connect to Jira", "2  Upload Sheet", "3  Configure Mapping", "4  Review & Create", "5  Update Labels",
+]
 # A real page switch (not st.tabs) — st.tabs renders every tab's body on
 # every single rerun regardless of which one is visible, which meant e.g.
 # clicking "Parse sheet" also silently ran all of Configure Mapping's Jira
@@ -1710,6 +1712,129 @@ elif nav == PAGES[3]:
                         f"The '{ss.sheet_name}' sheet's JIRA ID column is filled in for the "
                         f"{int(n_ok)} task(s) just created; everything else in the workbook is untouched."
                     )
+
+# ============================================================================
+# TAB 5 - UPDATE LABELS (existing issues)
+# ============================================================================
+elif nav == PAGES[4]:
+    st.subheader("\U0001F3F7️ Update labels on existing Jira tasks")
+    if not ss.client:
+        st.warning("Connect to Jira first (tab 1).")
+    else:
+        ss.setdefault("label_keys_text", "")
+        ss.setdefault("label_preview", None)
+
+        with st.container(border=True):
+            st.markdown("#### 1. Which tasks?")
+            st.caption("Issue keys, separated by new lines, commas or spaces (e.g. `NTP-101, NTP-102`).")
+            if not ss.df.empty and "jira_id" in ss.df.columns:
+                sheet_keys = [k for k in ss.df["jira_id"].dropna().astype(str).str.strip() if STORY_KEY_RE.match(k)]
+                if st.button(
+                    f"\U0001F4CB Load {len(sheet_keys)} key(s) from the sheet's JIRA ID column",
+                    disabled=not sheet_keys,
+                ):
+                    ss.label_keys_text = "\n".join(dict.fromkeys(sheet_keys))
+                    ss.label_preview = None
+                    st.rerun()
+            st.text_area("Issue keys", key="label_keys_text", height=140, label_visibility="collapsed")
+
+        with st.container(border=True):
+            st.markdown("#### 2. What to change?")
+            mode = st.radio(
+                "Action",
+                ["Add labels", "Remove labels", "Replace all labels"],
+                horizontal=True,
+                key="label_update_mode",
+            )
+            try:
+                existing_labels = sorted(get_all_labels())
+            except JiraError as e:
+                existing_labels = []
+                st.error(f"Could not load existing Jira labels: {e}")
+            chosen = st.multiselect(
+                "Labels",
+                options=existing_labels,
+                accept_new_options=True,
+                key="label_update_labels",
+                help="Pick existing labels or type a new one and press enter. Spaces become hyphens.",
+            )
+            labels_sel = list(dict.fromkeys(l.strip().replace(" ", "-") for l in chosen if l.strip()))
+            if mode == "Replace all labels":
+                st.caption("Every selected task's labels are overwritten with exactly the list above (empty = clear all).")
+
+        def new_labels_for(current):
+            if mode == "Add labels":
+                return current + [l for l in labels_sel if l not in current]
+            if mode == "Remove labels":
+                return [l for l in current if l not in labels_sel]
+            return list(labels_sel)
+
+        with st.container(border=True):
+            st.markdown("#### 3. Preview & apply")
+            if st.button("\U0001F50D Load tasks & preview", type="primary"):
+                keys = list(dict.fromkeys(k.upper() for k in re.split(r"[\s,;]+", ss.label_keys_text) if k))
+                bad = [k for k in keys if not STORY_KEY_RE.match(k)]
+                if bad:
+                    st.error(f"Not valid issue keys: {', '.join(bad)}")
+                elif not keys:
+                    st.warning("Enter at least one issue key.")
+                else:
+                    rows = []
+                    with st.spinner(f"Loading {len(keys)} issue(s)…"):
+                        for k in keys:
+                            try:
+                                info = ss.client.get_issue_brief(k)
+                                rows.append({**info, "error": ""})
+                            except JiraError as e:
+                                rows.append({"key": k, "summary": "", "labels": [], "error": str(e)[:200]})
+                    ss.label_preview = rows
+
+            if ss.label_preview:
+                if not labels_sel and mode != "Replace all labels":
+                    st.info("Select at least one label above to see the result.")
+                table = []
+                for r in ss.label_preview:
+                    new = new_labels_for(r["labels"])
+                    table.append(
+                        {
+                            "Issue": r["key"],
+                            "Summary": r["summary"],
+                            "Current labels": ", ".join(r["labels"]),
+                            "New labels": ", ".join(new) if not r["error"] else "",
+                            "Changes": (new != r["labels"]) and not r["error"],
+                            "Note": r["error"],
+                        }
+                    )
+                st.dataframe(table, use_container_width=True, height=min(400, 45 + 35 * len(table)))
+                todo = [
+                    r for r, t in zip(ss.label_preview, table)
+                    if t["Changes"]
+                ]
+                st.caption(f"{len(todo)} of {len(table)} task(s) will change.")
+                confirmed = st.checkbox(
+                    f"I confirm updating labels on {len(todo)} task(s) in Jira", key="label_update_confirm"
+                )
+                if st.button("✅ Apply label update", type="primary", disabled=not (todo and confirmed)):
+                    ok, failed = 0, []
+                    progress = st.progress(0.0)
+                    for i, r in enumerate(todo, 1):
+                        try:
+                            if mode == "Add labels":
+                                ss.client.update_labels(r["key"], add=labels_sel)
+                            elif mode == "Remove labels":
+                                ss.client.update_labels(r["key"], remove=labels_sel)
+                            else:
+                                ss.client.update_labels(r["key"], replace_with=labels_sel)
+                            r["labels"] = new_labels_for(r["labels"])
+                            ok += 1
+                        except JiraError as e:
+                            failed.append(f"{r['key']}: {str(e)[:150]}")
+                        progress.progress(i / len(todo))
+                    ss.all_labels = None  # new labels may now exist site-wide
+                    if ok:
+                        st.success(f"Updated labels on {ok} task(s).")
+                    for f in failed:
+                        st.error(f)
 
 # Rendered last so it reflects anything the tabs above just changed in this
 # same run (connecting, testing, parsing a sheet) rather than lagging behind.

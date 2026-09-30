@@ -97,6 +97,14 @@ streamlit run app.py
    button appears — click it to re-attempt only the failed rows (e.g. after
    fixing a mapping issue); successfully created tasks are left untouched.
 
+5. **Update Labels** — a separate tool for tasks that already exist in Jira
+   (no Excel sheet needed). Paste issue keys, or load them from the loaded
+   sheet's JIRA ID column. Choose **Add labels**, **Remove labels** or
+   **Replace all labels**, pick the labels (existing ones or type new), then
+   *Load tasks & preview* to see each task's current vs. new labels. Tick the
+   confirmation box and click *Apply label update*; only tasks whose labels
+   would actually change are touched.
+
 ## Dark mode
 
 Toggle **🌙 Dark mode** at the bottom of the sidebar. It's a session-only

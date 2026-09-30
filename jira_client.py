@@ -158,6 +158,25 @@ class JiraClient:
                 dropped.append(f)
         raise JiraError(f"Create failed after dropping fields {dropped}")
 
+    # ---- updating existing issues ------------------------------------------
+
+    def get_issue_brief(self, issue_key):
+        """Summary + current labels of an existing issue."""
+        data = self._get(f"/rest/api/3/issue/{issue_key}", params={"fields": "summary,labels"})
+        fields = data.get("fields", {})
+        return {"key": data.get("key", issue_key), "summary": fields.get("summary", ""), "labels": fields.get("labels", [])}
+
+    def update_labels(self, issue_key, add=None, remove=None, replace_with=None):
+        """Edit an issue's labels. `replace_with` (a list, possibly empty) sets the
+        whole label list; otherwise `add` / `remove` change only those labels and
+        leave the rest untouched."""
+        if replace_with is not None:
+            body = {"fields": {"labels": list(replace_with)}}
+        else:
+            ops = [{"add": lbl} for lbl in add or []] + [{"remove": lbl} for lbl in remove or []]
+            body = {"update": {"labels": ops}}
+        self._put(f"/rest/api/3/issue/{issue_key}", body)
+
     def assign_issue(self, issue_key, account_id):
         self._put(f"/rest/api/3/issue/{issue_key}/assignee", {"accountId": account_id})
 
