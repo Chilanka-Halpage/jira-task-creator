@@ -35,7 +35,7 @@ DEFAULT_MAPPING = {
     "components": {},    # jira project key -> {excel component value -> {"id": ..., "name": ...}}
     "issue_types": {},   # jira project key -> {"id": ..., "name": ...}
     "assignees": {},     # excel assignee value -> {"accountId": ..., "displayName": ...}
-    "link_type": None,   # {"name": ..., "task_side": "outward"|"inward"} used to link new task -> Jira Story
+    "link_type": {},  # jira project key -> {"mode": "parent"} or {"mode": "link", "name": ..., "task_side": "outward"|"inward"}
     # jira project key -> {jira field id -> mapping}. A mapping's "source" is
     # either "column" (value comes from an Excel column each row) or "fixed"
     # (same value on every task — for required fields with no Excel column,
@@ -100,6 +100,20 @@ def _migrate_extra_fields(extra_fields):
     return migrated
 
 
+def _migrate_link_type(link_type, projects):
+    """Old shape was a single global config (or None) applied to every
+    project. New shape is keyed per Jira project key. A dict missing a
+    "mode"/"name" key is already new-shaped (project keys never collide with
+    those names); otherwise carry the old single setting forward onto every
+    project already mapped, so existing behavior doesn't silently vanish."""
+    if not link_type:
+        return {}
+    if "mode" in link_type or "name" in link_type:
+        project_keys = {v["key"] for v in (projects or {}).values()}
+        return {pkey: dict(link_type) for pkey in project_keys}
+    return link_type
+
+
 def load_mapping():
     if PERSIST_LOCAL:
         if not os.path.exists(MAPPING_FILE):
@@ -110,6 +124,7 @@ def load_mapping():
         # leave stale data lying around in the saved file forever
         mapping = {key: data.get(key, default) for key, default in DEFAULT_MAPPING.items()}
         mapping["extra_fields"] = _migrate_extra_fields(mapping["extra_fields"])
+        mapping["link_type"] = _migrate_link_type(mapping["link_type"], mapping["projects"])
         return mapping
     # Session mode: same reasoning as load_connection() above — only used on
     # a session's first init, so a fresh default is correct.

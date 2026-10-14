@@ -189,6 +189,7 @@ class JiraClient:
         component_id=None,
         labels=None,
         original_estimate=None,
+        parent_key=None,
     ):
         fields = {
             "project": {"key": project_key},
@@ -203,4 +204,6 @@ class JiraClient:
             fields["labels"] = labels
         if original_estimate:
             fields["timetracking"] = {"originalEstimate": original_estimate}
+        if parent_key:
+            fields["parent"] = {"key": parent_key}
         return fields

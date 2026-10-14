@@ -44,7 +44,7 @@ STANDARD_FIELD_IDS = {
 # Excel columns already handled by a dedicated mapping section / creation step —
 # excluded from the generic "map any other column" picker.
 ALREADY_CONFIGURED_COLUMNS = {
-    "project_raw", "component_raw", "assignee_raw", "jira_story",
+    "project_raw", "assignee_raw", "jira_story",
     "description", "jira_id", "estimated_hours", "row_number",
 }
 
@@ -176,15 +176,19 @@ def custom_field_candidates(project_key):
 
 
 def match_allowed_value(raw_value, allowed_values):
-    """Match an Excel value like '75' against Jira dropdown options like
-    '75%' by comparing the numeric part only."""
-    raw_norm = re.sub(r"[^0-9.]", "", str(raw_value))
-    if not raw_norm:
-        return None
+    """Match an Excel value against a Jira dropdown option — first by exact
+    case-insensitive text (e.g. 'Dev' -> 'Dev', 'qa' -> 'QA'), then by
+    comparing the numeric part only (e.g. '75' -> '75%')."""
+    raw_str = str(raw_value).strip()
     for av in allowed_values or []:
-        av_norm = re.sub(r"[^0-9.]", "", str(av.get("value", "")))
-        if av_norm and av_norm == raw_norm:
+        if str(av.get("value", "")).strip().lower() == raw_str.lower():
             return av
+    raw_norm = re.sub(r"[^0-9.]", "", raw_str)
+    if raw_norm:
+        for av in allowed_values or []:
+            av_norm = re.sub(r"[^0-9.]", "", str(av.get("value", "")))
+            if av_norm and av_norm == raw_norm:
+                return av
     return None
 
 
@@ -1097,39 +1101,60 @@ elif nav == PAGES[2]:
                         storage.save_mapping(ss.mapping)
                         st.success(f"Labels saved for {pkey}." if parsed else f"Labels cleared for {pkey}.")
 
-        # ---- 3d. Story link type --------------------------------------------
+        # ---- 3d. Story link type (per project) ----------------------------------
+        PARENT_OPTION = "__PARENT__::parent"
         with st.container(border=True):
-            st.markdown("#### \U0001F517 Link new tasks to their Jira Story")
+            st.markdown("#### \U0001F517 Connect new tasks to their Jira Story (per project)")
             st.caption(
                 "When a row's 'Jira Story' value looks like a real Jira issue key (e.g. NTPSFC-16683), "
-                "the created task will be linked to it using the link type chosen below."
+                "the created task is connected to it using the option chosen below for that project — "
+                "either a regular issue link, or created directly **under** the story as its child (sets "
+                "the task's Parent field to the story, instead of linking two separate issues). Creating "
+                "as a child only works if that Jira project's issue-type hierarchy allows a Task to have "
+                "a Story as its parent — otherwise Jira rejects the Parent field and the task is still "
+                "created, just without it (reported in the *note* column)."
             )
-            try:
-                with st.spinner("Loading issue link types from Jira…"):
-                    link_types = get_link_types()
-            except JiraError as e:
-                link_types = []
-                st.error(f"Could not load issue link types: {e}")
+            if not component_relevant_keys:
+                st.info("Map at least one project used in this sheet above first.")
+            else:
+                try:
+                    with st.spinner("Loading issue link types from Jira…"):
+                        link_types = get_link_types()
+                except JiraError as e:
+                    link_types = []
+                    st.error(f"Could not load issue link types: {e}")
 
-            link_options = [(None, NO_LINK)]
-            for lt in link_types:
-                link_options.append((f"{lt['name']}::outward", f"New task — {lt['outward']} — the story"))
-                if lt.get("inward") != lt.get("outward"):
-                    link_options.append((f"{lt['name']}::inward", f"New task — {lt['inward']} — the story"))
+                link_options = [(None, NO_LINK), (PARENT_OPTION, "New task — created as a child of the story (Parent field)")]
+                for lt in link_types:
+                    link_options.append((f"{lt['name']}::outward", f"New task — {lt['outward']} — the story"))
+                    if lt.get("inward") != lt.get("outward"):
+                        link_options.append((f"{lt['name']}::inward", f"New task — {lt['inward']} — the story"))
 
-            current_link = ss.mapping.get("link_type")
-            current_link_value = f"{current_link['name']}::{current_link['task_side']}" if current_link else None
-            with st.form("link_type_form"):
-                chosen_link = select_value("Link type", link_options, current_link_value, "link_type_select")
-                submitted_l = st.form_submit_button("\U0001F4BE Save link type", type="primary")
-            if submitted_l:
-                if chosen_link is None:
-                    ss.mapping["link_type"] = None
-                else:
-                    name, side = chosen_link.split("::")
-                    ss.mapping["link_type"] = {"name": name, "task_side": side}
-                storage.save_mapping(ss.mapping)
-                st.success("Link type saved.")
+                link_type_map = ss.mapping["link_type"]
+                for pkey in component_relevant_keys:
+                    pname = next((p["name"] for p in projects if p["key"] == pkey), pkey)
+                    current_link = link_type_map.get(pkey)
+                    if current_link and current_link.get("mode") == "parent":
+                        current_link_value = PARENT_OPTION
+                    elif current_link:
+                        current_link_value = f"{current_link['name']}::{current_link['task_side']}"
+                    else:
+                        current_link_value = None
+                    with st.form(f"link_type_form__{pkey}"):
+                        chosen_link = select_value(
+                            f"Connection type for {pkey} — {pname}", link_options, current_link_value, f"link_type_select__{pkey}"
+                        )
+                        submitted_l = st.form_submit_button("\U0001F4BE Save", key=f"link_type_save__{pkey}", type="primary")
+                    if submitted_l:
+                        if chosen_link is None:
+                            link_type_map.pop(pkey, None)
+                        elif chosen_link == PARENT_OPTION:
+                            link_type_map[pkey] = {"mode": "parent"}
+                        else:
+                            name, side = chosen_link.split("::")
+                            link_type_map[pkey] = {"mode": "link", "name": name, "task_side": side}
+                        storage.save_mapping(ss.mapping)
+                        st.success(f"Saved for {pkey}.")
 
         # ---- Additional field mappings (generic, per project) -----------------
         with st.container(border=True):
@@ -1152,7 +1177,7 @@ elif nav == PAGES[2]:
                     if not issue_type_map.get(pkey):
                         st.warning(f"Set a default issue type for {pkey} in the Component mapping section above first.")
                         continue
-                    configured = extra_field_map.get(pkey, {})
+                    configured = extra_field_map.setdefault(pkey, {})
                     with st.expander(f"Jira Project: {pkey} — {pname}", expanded=bool(configured)):
                         if configured:
                             st.caption("Configured mappings:")
@@ -1267,7 +1292,7 @@ elif nav == PAGES[3]:
         extra_field_map = ss.mapping["extra_fields"]
         title_template_map = ss.mapping["title_templates"]
         title_columns = title_template_columns(ss.df)
-        link_type_cfg = ss.mapping.get("link_type")
+        link_type_map = ss.mapping.get("link_type") or {}
         label_map = ss.mapping["labels"]
 
         # Every fixed-value extra field configured on a project used in this
@@ -1520,6 +1545,9 @@ elif nav == PAGES[3]:
                     else row.description
                 )
 
+                link_type_cfg = link_type_map.get(pkey)
+                parent_key = story_link if (story_link and link_type_cfg and link_type_cfg.get("mode") == "parent") else None
+
                 fields = ss.client.build_fields(
                     project_key=pkey,
                     issue_type_id=it["id"],
@@ -1528,6 +1556,7 @@ elif nav == PAGES[3]:
                     component_id=comp["id"] if comp else None,
                     labels=labels,
                     original_estimate=original_estimate,
+                    parent_key=parent_key,
                 )
 
                 override_row = None
@@ -1602,7 +1631,14 @@ elif nav == PAGES[3]:
                         except JiraError as ae:
                             notes.append(f"assignment failed: {ae}")
 
-                    if story_link and link_type_cfg:
+                    if story_link and link_type_cfg and link_type_cfg.get("mode") == "parent":
+                        if "parent" in (created.get("_dropped_fields") or []):
+                            notes.append(
+                                f"could not create under {story_link} as its child — Jira rejected the "
+                                "Parent field (issue type hierarchy likely doesn't allow it); task was "
+                                "created without a parent"
+                            )
+                    elif story_link and link_type_cfg and link_type_cfg.get("mode", "link") == "link" and link_type_cfg.get("name"):
                         try:
                             if link_type_cfg["task_side"] == "outward":
                                 ss.client.create_issue_link(link_type_cfg["name"], issue_key, story_link)

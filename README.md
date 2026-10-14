@@ -58,10 +58,17 @@ streamlit run app.py
      task from a dropdown of labels already used in your Jira site, or type a
      new one and press enter to add it. No labels are added unless you
      configure some here.
-   - **Story linking** — pick the Jira **link type** used to connect a new task to its
-     `Jira Story` reference (e.g. "relates to"). Whenever a row's `Jira Story`
-     column holds a real-looking issue key (like `NTPSFC-16683`), the created
-     task is linked to that story automatically.
+   - **Story linking (per project)** — for each Jira project, pick how a new
+     task connects to its `Jira Story` reference: either a regular **link
+     type** (e.g. "relates to"), or **created as a child of the story**
+     (sets the task's Parent field to the story instead of linking two
+     separate issues). Different projects can use different options.
+     Whenever a row's `Jira Story` column holds a real-looking issue key
+     (like `NTPSFC-16683`), the created task is connected to that story
+     automatically using whichever option is set for its project. "Created
+     as a child" only works if that project's issue-type hierarchy allows a
+     Task to have a Story as its parent — if Jira rejects it, the task is
+     still created, just without a parent (reported in the *note* column).
    - **Additional field mappings** — map any other Jira field, per project,
      either:
      - **from an Excel column** (Capitalization, Priority, Status, Comments,
